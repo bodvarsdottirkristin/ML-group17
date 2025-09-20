@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Load data from csv 
-df = pd.read_csv(r'online_shoppers_intention.csv')
+df = pd.read_csv(r'data/online_shoppers_intention.csv')
 print('df', df)
 
 # Split into X (features) and y (target)
