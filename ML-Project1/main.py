@@ -70,19 +70,19 @@ fig, ax = plt.subplots(figsize=(10,8))
 
 df[continuous_cols].boxplot(ax=ax)
 ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=10)
-ax.set_title('Boxplot of continuous variables, not normalized')
+ax.set_title('Boxplot of non nominal attributes, not normalized')
 plt.tight_layout()
 
 fig, ax = plt.subplots(figsize=(10,8))
 
 df_scaled[continuous_cols].boxplot(ax=ax)
 ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=10)
-ax.set_title('Boxplot of continuous variables, normalized')
+ax.set_title('Boxplot of non nominal attributes, normalized')
 plt.tight_layout()
 
 ## How are the individual attributes distributed (e.g. normally distributed)?
 
-fig, axes = plt.subplots(3, 5, figsize=(18, 8), sharey=False)
+fig, axes = plt.subplots(2, 4, figsize=(18, 8), sharey=False)
 axes = np.array(axes).flatten()
 
 for i, col in enumerate(continuous_cols):
@@ -92,7 +92,7 @@ for i, col in enumerate(continuous_cols):
     axes[i].set_xlabel("Value")
     axes[i].set_ylabel("Frequency")
 
-fig.suptitle("Histograms of Continuous Features", fontsize=16)
+fig.suptitle("Histograms of non nominal attributes", fontsize=16)
 plt.tight_layout()
 
 fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(8,12))
