@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from pandas.plotting import scatter_matrix
+from sklearn.decomposition import PCA
 import seaborn as sns
 
 # Load data from csv 
@@ -20,13 +21,17 @@ print(f'M: {M}')
 # Lets print the columns
 print(df.info())
 
-# Split into X (features) and y (target)
-X = df.drop(columns=["chd"])
-y = pd.Categorical(df['chd']) 
-
 print(df['famhist'].head())
+
 # famhist is Absent/Present, lets change that to be categorical where 1 = Present, 0 = Absent
 df['famhist'] = pd.Categorical(df['famhist']).codes
+
+# Split into X (features) and y (target)
+
+X = df.drop(columns=["chd"])
+y = pd.Categorical(df['chd']).codes
+
+### 4. - EXPLORATORY ANALYSIS
 
 ## 4. 1 - SUMMARY STATISTICS
 
@@ -40,13 +45,13 @@ for i, cols in enumerate(col_groups, start=1):
 # Only retrieve the non-nominal features for outlier detection
 non_nominal_cols = df.drop(columns=["row.names", "famhist", "chd"]).columns
 
+fig, axes = plt.subplots(1, 2, figsize=(10,8))
 # Create a barplot for the two categorical attributes
-for i, col in enumerate(['famhist', 'chd']):
-    plt.figure(figsize=(6, 4)) 
-    df[col].value_counts().plot(kind='bar', figsize=(6,4), color='skyblue', edgecolor='black')
-    plt.title(f'Barplot of {col}')
-    plt.ylabel('Count')
-    plt.tight_layout()
+for ax, col in zip(axes, ['famhist', 'chd']):
+    df[col].value_counts().plot(kind='bar', figsize=(6,4), color='skyblue', edgecolor='black', ax=ax)
+    ax.set_title(f'Barplot of {col}')
+    ax.set_ylabel('Count')
+plt.tight_layout()
 
 # Create boxplots for the non-nominal attributes, first not normalized
 fig, ax = plt.subplots(figsize=(10,8))
@@ -98,7 +103,7 @@ plt.tight_layout()
 
 
 
-## 4. 2 - SIMILATIRY MEASURES
+## 4. 2 - SIMILARITY MEASURES
 
 corr = df[non_nominal_cols].corr()
 
@@ -118,4 +123,151 @@ plt.tight_layout()
 ## Scatter matrix : Correlation between attributes
 scatter_matrix(df[non_nominal_cols], figsize=(15, 15), diagonal='hist', alpha=0.5, color='blue')
 plt.suptitle("Scatter matrix of non nominal attributes", fontsize=16)
+
+### 5. - PRINCIPAL COMPONENT ANALYSIS
+
+# Create a PCA object and fit to the data
+pca = PCA()
+
+pca.fit(X)
+V = pca.components_.T
+# Compute fraction of variance explained
+rho = pca.explained_variance_ratio_
+
+# 90% threshold for variance explained
+threshold = 0.9
+plt.figure()
+plt.plot(range(1, len(rho) + 1), rho, "x-")
+plt.plot(range(1, len(rho) + 1), np.cumsum(rho), "o-")
+plt.plot([1, len(rho)], [threshold, threshold], "k--")
+plt.title("Variance explained by principal components")
+plt.xlabel("Principal component")
+plt.ylabel("Variance explained")
+plt.legend(["Individual", "Cumulative", "Threshold"])
+plt.grid()
+
+# The graph shows we need 4 principal components to explain over 90% of the attributes's variance
+
+PC_idxs = [0, 1]  # Indices of the principal components to plot
+unique_classes = np.unique(y) # Get unique classes from the target variable
+
+B = pca.transform(X)
+
+# Plot PCA of the data
+fig = plt.figure()
+plt.title("Heart Disease: PCA")
+# Plot the data projected onto the principal components, colored by chd
+for is_chd in unique_classes:
+    mask = (y == is_chd)
+    plt.plot(B[mask, PC_idxs[0]], B[mask, PC_idxs[1]], ".", alpha=0.5)
+
+plt.xlabel(f"PC{PC_idxs[0] + 1}")
+plt.ylabel(f"PC{PC_idxs[1] + 1}")
+
+bw = 0.2
+r = np.arange(1, X.shape[1] + 1)
+
+fig = plt.figure(figsize=(10, 6))
+plt.title("HeartDisease: PCA Component Coefficients")
+for i, pc in enumerate(V[:, :4].T):
+    plt.bar(r + i * bw, pc, width=bw, label=f"PC{i+1}")
+plt.xticks(r + bw, X.columns)
+plt.xlabel("Attributes")
+plt.ylabel("Component coefficients")
+plt.legend()
+plt.grid()
+
+
+# Lets now do the same but with normalized attributes 
+
+# Aftur nema normalized
+X_no_binary = X.drop(columns="famhist", axis=1)
+X_tilde = (X_no_binary - np.mean(X_no_binary, axis=0)) / np.std(X_no_binary, axis=0)
+
+pca = PCA()
+pca.fit(X_tilde)
+V = pca.components_.T
+# Compute fraction of variance explained
+rho = pca.explained_variance_ratio_
+
+# 90% threshold for variance explained
+threshold = 0.9
+plt.figure()
+plt.plot(range(1, len(rho) + 1), rho, "x-")
+plt.plot(range(1, len(rho) + 1), np.cumsum(rho), "o-")
+plt.plot([1, len(rho)], [threshold, threshold], "k--")
+plt.title("Variance explained by principal components, normalized attributes")
+plt.xlabel("Principal component")
+plt.ylabel("Variance explained")
+plt.legend(["Individual", "Cumulative", "Threshold"])
+plt.grid()
+
+# choose components to plot: PC2 vs PC3
+pcx, pcy = 0, 1                    # zero-based indices
+
+fig = plt.figure()
+plt.title("Heart Disease: PCA")
+
+for cls in np.unique(y):
+    mask = (y == cls)
+    plt.scatter(B[mask, pcx], B[mask, pcy], alpha=0.6, label=str(cls))
+
+plt.xlabel(f"PC{pcx+1}")
+plt.ylabel(f"PC{pcy+1}")
+plt.legend(title="chd")
+plt.grid(True, linestyle=":")
+
+# choose components to plot: PC2 vs PC3
+pcx, pcy = 1, 2                     # zero-based indices
+
+fig = plt.figure()
+plt.title("Heart Disease: PCA")
+
+for cls in np.unique(y):
+    mask = (y == cls)
+    plt.scatter(B[mask, pcx], B[mask, pcy], alpha=0.6, label=str(cls))
+
+plt.xlabel(f"PC{pcx+1}")
+plt.ylabel(f"PC{pcy+1}")
+plt.legend(title="chd")
+plt.grid(True, linestyle=":")
+
+# choose components to plot: PC2 vs PC3
+pcx, pcy = 0, 2                     # zero-based indices
+
+fig = plt.figure()
+plt.title("Heart Disease: PCA")
+
+for cls in np.unique(y):
+    mask = (y == cls)
+    plt.scatter(B[mask, pcx], B[mask, pcy], alpha=0.6, label=str(cls))
+
+plt.xlabel(f"PC{pcx+1}")
+plt.ylabel(f"PC{pcy+1}")
+plt.legend(title="chd")
+plt.grid(True, linestyle=":")
+
+
+bw = 0.2
+r = np.arange(1, X.shape[1] + 1)
+
+fig, ax = plt.subplots(figsize=(10, 6))
+ax.set_title("HeartDisease: PCA Component Coefficients (Modified)")
+
+# Use a colormap for better color variety
+colors = plt.cm.Set2.colors  
+
+for i, pc in enumerate(V[:, :7].T):
+    ax.bar(r + i * bw, pc, width=bw, label=f"PC{i+1}", color=colors[i % len(colors)], alpha=0.85, edgecolor="black")
+
+ax.set_xticks(r + bw * 3)  # center the labels
+ax.set_xticklabels(X.columns, rotation=30, ha="right")
+ax.set_xlabel("Attributes")
+ax.set_ylabel("Component coefficients")
+
+# Move legend outside the plot
+ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+plt.tight_layout()
 plt.show()
