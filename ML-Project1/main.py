@@ -82,7 +82,7 @@ for i, col in enumerate(non_nominal_cols):
 fig.suptitle("Histograms of non nominal attributes", fontsize=16)
 plt.tight_layout()
 
-fig, axes = plt.subplots(2, 4, figsize=(8,12))
+fig, axes = plt.subplots(2, 4, figsize=(18,8))
 axes = np.array(axes).flatten()
 
 
@@ -93,6 +93,7 @@ for i, col in enumerate(non_nominal_cols):
     axes[i].set_title(f"{col} Distribution", fontsize=12)
     axes[i].set_xlabel("Value")
     axes[i].set_ylabel("Frequency")
+fig.suptitle("Histograms of non nominal attributes, with fit", fontsize=16)
 plt.tight_layout()
 
 
