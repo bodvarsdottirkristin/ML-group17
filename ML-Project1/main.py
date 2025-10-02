@@ -14,8 +14,10 @@ from sklearn.decomposition import PCA
 import seaborn as sns
 from matplotlib.lines import Line2D
 
-# Load data from csv 
-df = pd.read_csv(r'data/SAHeart.csv')
+# Load data
+url = "https://web.stanford.edu/~hastie/ElemStatLearn/datasets/SAheart.data"
+df = pd.read_csv(url, index_col=0)
+
 
 N = df.shape[0]
 M = df.shape[1]
@@ -56,7 +58,7 @@ for i, cols in enumerate(col_groups, start=1):
 ### 3.1.1 -  Check issues with extreme values or outliers in the data
 
 # Only retrieve the non-nominal features for outlier detection
-non_nominal_cols = df.drop(columns=["row.names", "famhist", "chd"]).columns
+non_nominal_cols = df.drop(columns=[ "famhist", "chd"]).columns
 
 fig, axes = plt.subplots(1, 2, figsize=(10,8))
 # Create a barplot for the two categorical attributes
