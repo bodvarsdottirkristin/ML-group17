@@ -1,3 +1,9 @@
+# Group 17
+# Authors: 
+# Helga María Magnúsdóttir
+# Kristín Böðvarsdóttir
+# Þorsteinn Björn Guðmundsson 
+
 # Adding the neccessary libraries
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -25,23 +31,29 @@ print(df.info())
 print(df['famhist'].head())
 
 # famhist is Absent/Present, lets change that to be categorical where 1 = Present, 0 = Absent
-df['famhist'] = pd.Categorical(df['famhist']).codes
+df['famhist'] = df['famhist'].astype('category')
+df['chd'] = df['chd'].astype('category')
 
 # Split into X (features) and y (target)
 
 X = df.drop(columns=["chd"])
 y = pd.Categorical(df['chd']).codes
 
-### 4. - EXPLORATORY ANALYSIS
+### 2 - Attributes of the data
 
-## 4. 1 - SUMMARY STATISTICS
+## 2.3 - Summary statistics
 
 col_groups = np.array_split(df.columns, 3)
 for i, cols in enumerate(col_groups, start=1):
     print(f"\nSummary Table {i}")
     print(df[cols].describe().round(2))
 
-## Check issues with extreme values or outliers in the data
+### 3. - Data visualization
+
+## 3.1 - Exploratory analysis
+
+
+### 3.1.1 -  Check issues with extreme values or outliers in the data
 
 # Only retrieve the non-nominal features for outlier detection
 non_nominal_cols = df.drop(columns=["row.names", "famhist", "chd"]).columns
@@ -53,6 +65,7 @@ for ax, col in zip(axes, ['famhist', 'chd']):
     ax.set_title(f'Barplot of {col}')
     ax.set_ylabel('Count')
 plt.tight_layout()
+
 
 # Create boxplots for the non-nominal attributes, first not normalized
 fig, ax = plt.subplots(figsize=(10,8))
@@ -73,7 +86,9 @@ ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=10)
 ax.set_title('Boxplot of non nominal attributes, normalized')
 plt.tight_layout()
 
-## How are the individual attributes distributed (e.g. normally distributed)?
+
+
+### 3.1.2 -  How are the individual attributes distributed (e.g. normally distributed)?
 
 fig, axes = plt.subplots(2, 4, figsize=(18, 8), sharey=False)
 axes = np.array(axes).flatten()
@@ -104,7 +119,7 @@ plt.tight_layout()
 
 
 
-## 4. 2 - SIMILARITY MEASURES
+### 3.1.3 - Correlations between attributes
 
 corr = df[non_nominal_cols].corr()
 
@@ -125,7 +140,7 @@ plt.tight_layout()
 scatter_matrix(df[non_nominal_cols], figsize=(15, 15), diagonal='hist', alpha=0.5, color='blue')
 plt.suptitle("Scatter matrix of non nominal attributes", fontsize=16)
 
-### 5. - PRINCIPAL COMPONENT ANALYSIS
+## 3.2. - Principal Component Analysis (PCA)
 
 # Start by normalizing the attributes since they are of different range
 X_no_binary = X.drop(columns="famhist", axis=1)
