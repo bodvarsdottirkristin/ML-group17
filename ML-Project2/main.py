@@ -40,8 +40,8 @@ def main():
     # Fetch data
     X, y = fetch_data()
 
-    #ridge_a = ridge_regression(X, y)
-    ann_model(X, y)
+    ridge_a = ridge_regression(X, y)
+    #ann_model(X, y)
     #print(ridge_a)
 
 

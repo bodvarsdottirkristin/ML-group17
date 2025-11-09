@@ -57,7 +57,7 @@ def ridge_regression(X, y, lambdas=None, K=10, seed=1234, show_plot=True):
     plt.ylabel("Mean Squared Error (10-fold CV)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("/figures/part_a.png", dpi=300, bbox_inches='tight')
+    plt.savefig("figures/part_a.png", dpi=300, bbox_inches='tight')
 
     if show_plot:
         plt.show()

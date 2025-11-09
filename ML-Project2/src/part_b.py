@@ -159,8 +159,7 @@ def ann_model(X,y, k=(10,10), hidden_dims=[1,2,10,50], lr=0.001, n_epochs=1000, 
     plt.suptitle('Training loss for different hidden units')
     plt.tight_layout()
     axs[0].legend()
-    plt.show()
-    plt.savefig("part_b.png", dpi=300, bbox_inches='tight')
+    plt.savefig("figures/part_b.png", dpi=300, bbox_inches='tight')
     if show_plot:
         plt.show()
 
