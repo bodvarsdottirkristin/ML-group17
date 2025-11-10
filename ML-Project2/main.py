@@ -31,17 +31,18 @@ def fetch_data():
 
     # Split into features and target
     X = df.drop(columns=['ldl', 'chd']).values
-    y = df['ldl'].values
-
-    return X, y
+    y_reg = df['ldl'].values
+    y_cat = df['chd'].values
+    
+    return X, y_reg, y_cat
 
 def main():
 
     # Fetch data
-    X, y = fetch_data()
+    X, y_reg, y_cat = fetch_data()
 
-    ridge_a = ridge_regression(X, y)
-    #ann_model(X, y)
+    ridge_a = ridge_regression(X, y_reg, seed=1234)
+    ann_model(X, y_reg, seed=1234)
     #print(ridge_a)
 
 
