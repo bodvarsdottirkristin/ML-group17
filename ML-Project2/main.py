@@ -9,7 +9,8 @@ from matplotlib.lines import Line2D
 
 from src.part_a import ridge_regression
 from src.part_b import ann_model
-from src.part_c_test_hm import run_classification
+#from src.part_c_test_hm import run_classification
+from src.part_c import *
 
 import pandas as pd
 import numpy as np
@@ -52,7 +53,7 @@ def main():
 
     # Classification
 
-    run_classification(X, y_cat, K=10, seed=1234)
+    run_classification(X, y_cat)
     #ridge_regression(X, y_reg, seed=SEED)
 
 

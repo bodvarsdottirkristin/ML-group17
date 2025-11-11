@@ -1,1 +1,247 @@
-# We will classify y
+import numpy as np
+import torch
+from sklearn.model_selection import StratifiedKFold
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+from scipy.stats import chi2, binomtest
+
+# ---------- Utilities ----------
+def standardize(X_train, X_test):
+    mu = np.mean(X_train, axis=0)
+    sigma = np.std(X_train, axis=0)
+    sigma[sigma == 0] = 1.0
+    return (X_train - mu) / sigma, (X_test - mu) / sigma
+
+def split_test_train(X, y, train_idx, test_idx):
+    return X[train_idx], y[train_idx], X[test_idx], y[test_idx]
+
+def error_rate(y_true, y_pred):
+    return np.mean(y_true != y_pred)
+
+# ---------- Baseline ----------
+def baseline_predict(y_train, n_test):
+    # Predict the majority class from TRAINING data for all TEST points
+    vals, counts = np.unique(y_train, return_counts=True)
+    majority = vals[np.argmax(counts)]
+    return np.full(n_test, majority, dtype=int), int(majority)
+
+# ---------- Logistic Regression (Method: LR) ----------
+def log_reg_outer(X_train_outer, y_train_outer, X_test_outer, y_test_outer,
+                  lambdas, CV_inner, fold_outer_idx, K_inner):
+
+    test_errors_inner = np.empty((K_inner, len(lambdas)))
+
+    # Inner CV to pick lambda
+    for fold_inner_idx, (tr_in_idx, te_in_idx) in enumerate(CV_inner.split(X_train_outer, y_train_outer)):
+        X_tr_in, y_tr_in, X_te_in, y_te_in = split_test_train(X_train_outer, y_train_outer, tr_in_idx, te_in_idx)
+        X_tr_in, X_te_in = standardize(X_tr_in, X_te_in)
+
+        for lam_idx, lam in enumerate(lambdas):
+            Cval = 1.0 / lam
+            model = LogisticRegression(penalty='l1', C=Cval, solver='liblinear', max_iter=1000)
+            model.fit(X_tr_in, y_tr_in)
+            yhat = model.predict(X_te_in)
+            test_errors_inner[fold_inner_idx, lam_idx] = error_rate(y_te_in, yhat)
+
+    opt_idx = np.argmin(np.mean(test_errors_inner, axis=0))
+    opt_lambda = lambdas[opt_idx]
+
+    # Refit on outer-train with optimal lambda and evaluate on outer-test
+    X_tr, X_te = standardize(X_train_outer, X_test_outer)
+    model = LogisticRegression(penalty='l1', C=1.0/opt_lambda, solver='liblinear', max_iter=1000)
+    model.fit(X_tr, y_train_outer)
+    yhat_tr = model.predict(X_tr)
+    yhat_te = model.predict(X_te)
+
+    return opt_lambda, error_rate(y_train_outer, yhat_tr), error_rate(y_test_outer, yhat_te), yhat_te
+
+# ---------- ANN (Method 2) ----------
+def get_model(input_dim, hidden_dim, output_dim=1):
+    return torch.nn.Sequential(
+        torch.nn.Linear(input_dim, hidden_dim, bias=True),
+        torch.nn.ReLU(),
+        torch.nn.Linear(hidden_dim, output_dim, bias=True),
+        torch.nn.Sigmoid()
+    )
+
+def ann_outer(X_train_outer, y_train_outer, X_test_outer, y_test_outer,
+              hidden_dims, CV_inner, fold_outer_idx, K_inner,
+              lr=0.01, n_epochs=500, seed=1234):
+
+    val_losses_inner = np.empty((K_inner, len(hidden_dims)))
+
+    # Inner CV: select hidden_dim minimizing validation error rate (we’ll evaluate by BCE but rank by error)
+    for fold_inner_idx, (tr_in_idx, te_in_idx) in enumerate(CV_inner.split(X_train_outer, y_train_outer)):
+        X_tr_in, y_tr_in, X_te_in, y_te_in = split_test_train(X_train_outer, y_train_outer, tr_in_idx, te_in_idx)
+        X_tr_in, X_te_in = standardize(X_tr_in, X_te_in)
+
+        torch.manual_seed(seed)
+        X_tr_in = torch.tensor(X_tr_in, dtype=torch.float32)
+        y_tr_in = torch.tensor(y_tr_in.reshape(-1, 1), dtype=torch.float32)
+        X_te_in = torch.tensor(X_te_in, dtype=torch.float32)
+        y_te_in = torch.tensor(y_te_in.reshape(-1, 1), dtype=torch.float32)
+
+        for h_idx, h in enumerate(hidden_dims):
+            model = get_model(X_tr_in.shape[1], h, 1)
+            criterion = torch.nn.BCELoss()
+            opt = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+
+            for _ in range(n_epochs):
+                model.train()
+                out = model(X_tr_in)
+                loss = criterion(out, y_tr_in)
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+
+            with torch.no_grad():
+                model.eval()
+                out_val = model(X_te_in)
+                preds = (out_val >= 0.5).float()
+                err = (preds != y_te_in).float().mean().item()
+                val_losses_inner[fold_inner_idx, h_idx] = err
+
+    opt_h_idx = np.argmin(np.mean(val_losses_inner, axis=0))
+    opt_hidden = hidden_dims[opt_h_idx]
+
+    # Train on outer-train; evaluate on outer-test
+    X_tr, X_te = standardize(X_train_outer, X_test_outer)
+    torch.manual_seed(seed)
+    X_tr = torch.tensor(X_tr, dtype=torch.float32)
+    y_tr = torch.tensor(y_train_outer.reshape(-1, 1), dtype=torch.float32)
+    X_te_t = torch.tensor(X_te, dtype=torch.float32)
+
+    model = get_model(X_tr.shape[1], opt_hidden, 1)
+    criterion = torch.nn.BCELoss()
+    opt = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+
+    for _ in range(n_epochs):
+        model.train()
+        out = model(X_tr)
+        loss = criterion(out, y_tr)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+
+    with torch.no_grad():
+        model.eval()
+        out_te = model(X_te_t).numpy().ravel()
+        yhat_te = (out_te >= 0.5).astype(int)
+
+    return opt_hidden, error_rate(y_test_outer, yhat_te), yhat_te
+
+# ---------- McNemar (paired) ----------
+def mcnemar_test(y_true, y_pred_a, y_pred_b):
+    """
+    Pools discordant counts across folds: b = A wrong, B right; c = A right, B wrong.
+    Returns: statistic, p_value, (b, c), CI for p=b/(b+c) via exact binomial (95%).
+    """
+    b = np.sum((y_pred_a != y_true) & (y_pred_b == y_true))
+    c = np.sum((y_pred_a == y_true) & (y_pred_b != y_true))
+    n = b + c
+    if n == 0:
+        # Models make identical decisions everywhere: p-value = 1, CI undefined -> (0,1)
+        return 0.0, 1.0, (b, c), (0.0, 1.0)
+    # McNemar with continuity correction
+    stat = (abs(b - c) - 1)**2 / (b + c)
+    p_val = 1 - chi2.cdf(stat, df=1)
+    # Exact binomial CI for p = b/n
+    bt = binomtest(b, n)
+    ci_low, ci_high = bt.proportion_ci(confidence_level=0.95, method='exact').low, bt.proportion_ci(confidence_level=0.95, method='exact').high
+    return stat, p_val, (b, c), (ci_low, ci_high)
+
+# ---------- Main runner ----------
+def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
+                       lambdas=(1e-4, 1e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1, 5),
+                       hidden_dims=(1, 2, 5, 10, 20, 50),
+                       ann_lr=0.01, ann_epochs=500):
+
+    assert set(np.unique(y)).issubset({0, 1}), "y must be binary {0,1}"
+
+    CV_outer = StratifiedKFold(n_splits=K_outer, shuffle=True, random_state=seed)
+
+    table_rows = []  # For Table 2
+    # Collect predictions for statistics
+    y_true_all = []
+    y_hat_lr_all = []
+    y_hat_ann_all = []
+    y_hat_base_all = []
+
+    for i, (tr_idx, te_idx) in enumerate(CV_outer.split(X, y), start=1):
+        X_tr, y_tr, X_te, y_te = split_test_train(X, y, tr_idx, te_idx)
+        CV_inner = StratifiedKFold(n_splits=K_inner, shuffle=True, random_state=seed)
+
+        # Logistic regression
+        lam_star, train_err_lr, test_err_lr, yhat_lr = log_reg_outer(
+            X_tr, y_tr, X_te, y_te, lambdas, CV_inner, i-1, K_inner
+        )
+
+        # Method 2: ANN
+        h_star, test_err_ann, yhat_ann = ann_outer(
+            X_tr, y_tr, X_te, y_te, hidden_dims, CV_inner, i-1, K_inner,
+            lr=ann_lr, n_epochs=ann_epochs, seed=seed
+        )
+
+        # Baseline
+        yhat_base, base_class = baseline_predict(y_tr, len(y_te))
+        test_err_base = error_rate(y_te, yhat_base)
+
+        # Save row: [outer i, Method2 param, Method2 Etest, λ*, LR Etest, Baseline Etest]
+        table_rows.append([i, h_star, test_err_ann, lam_star, 100*test_err_lr, test_err_base])
+
+        # For stats
+        y_true_all.append(y_te)
+        y_hat_lr_all.append(yhat_lr)
+        y_hat_ann_all.append(yhat_ann)
+        y_hat_base_all.append(yhat_base)
+
+        print(f"Outer fold {i}: ANN(h*={h_star}) E_test={test_err_ann:.3f} | "
+              f"LR(λ*={lam_star}) E_test={test_err_lr:.3f} | "
+              f"Baseline(most={base_class}) E_test={test_err_base:.3f}")
+
+    table = np.array(table_rows, dtype=object)
+
+    # Concatenate predictions for paired tests
+    y_true_cat = np.concatenate(y_true_all)
+    y_lr_cat   = np.concatenate(y_hat_lr_all)
+    y_ann_cat  = np.concatenate(y_hat_ann_all)
+    y_base_cat = np.concatenate(y_hat_base_all)
+
+    # Pairwise McNemar
+    stat_lr_vs_ann, p_lr_vs_ann, bc_lr_vs_ann, ci_lr_vs_ann = mcnemar_test(y_true_cat, y_lr_cat, y_ann_cat)
+    stat_lr_vs_base, p_lr_vs_base, bc_lr_vs_base, ci_lr_vs_base = mcnemar_test(y_true_cat, y_lr_cat, y_base_cat)
+    stat_ann_vs_base, p_ann_vs_base, bc_ann_vs_base, ci_ann_vs_base = mcnemar_test(y_true_cat, y_ann_cat, y_base_cat)
+
+    stats = {
+        "LR vs ANN": {
+            "statistic": stat_lr_vs_ann, "p_value": p_lr_vs_ann,
+            "discordant_counts_(b,c)": bc_lr_vs_ann,
+            "binomial_CI_for_p=b/(b+c)": ci_lr_vs_ann
+        },
+        "LR vs Baseline": {
+            "statistic": stat_lr_vs_base, "p_value": p_lr_vs_base,
+            "discordant_counts_(b,c)": bc_lr_vs_base,
+            "binomial_CI_for_p=b/(b+c)": ci_lr_vs_base
+        },
+        "ANN vs Baseline": {
+            "statistic": stat_ann_vs_base, "p_value": p_ann_vs_base,
+            "discordant_counts_(b,c)": bc_ann_vs_base,
+            "binomial_CI_for_p=b/(b+c)": ci_ann_vs_base
+        }
+    }
+
+    # Pretty print Table 2–style header
+    print("\nTwo-level cross-validation table (error rates in %):")
+    print("Outer fold | Method 2 (h*) | E_test(Method2) | λ* (LR) | E_test(LR) | E_test(Baseline)")
+    for r in table:
+        print(f"{r[0]:>10} | {r[1]:>12} | {r[2]:>14.1f} | {r[3]:>7} | {r[4]:>10.1f} | {r[5]:>15.1f}")
+
+    return {
+        "table_rows": table,          # array with columns: i, h*, E_ann, λ*, E_lr, E_base (E's in %)
+        "mcnemar_stats": stats        # dict of p-values & CIs for three pairwise tests
+    }
+
+# ---------------------------
+# Example usage (after you define X, y):
+# results = run_classification(X, y, K_outer=10, K_inner=10, seed=1234)
+# ---------------------------
