@@ -10,8 +10,6 @@ from matplotlib.lines import Line2D
 from src.part_a import ridge_regression
 from src.part_b import ann_model
 
-
-
 import pandas as pd
 import numpy as np
 
@@ -38,12 +36,21 @@ def fetch_data():
 
 def main():
 
+    SEED = 1234
     # Fetch data
     X, y_reg, y_cat = fetch_data()
 
-    ridge_a = ridge_regression(X, y_reg, seed=1234)
-    ann_model(X, y_reg, seed=1234)
-    #print(ridge_a)
+    # Regression part A
+    ridge_a = ridge_regression(X, y_reg, seed=SEED)
+    print(ridge_a)
+
+    # Regression part B
+    table1  = ann_model(X, y_reg, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=SEED)
+    print(table1)
+
+    # Classification
+
+
 
 
 if __name__ == "__main__":
