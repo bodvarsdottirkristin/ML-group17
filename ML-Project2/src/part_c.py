@@ -187,7 +187,7 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
         test_err_base = error_rate(y_te, yhat_base)
 
         # Save row: [outer i, Method2 param, Method2 Etest, λ*, LR Etest, Baseline Etest]
-        table_rows.append([i, h_star, test_err_ann, lam_star, 100*test_err_lr, test_err_base])
+        table_rows.append([i, h_star, test_err_ann, lam_star, test_err_lr, test_err_base])
 
         # For stats
         y_true_all.append(y_te)
@@ -234,7 +234,7 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
     print("\nTwo-level cross-validation table (error rates in %):")
     print("Outer fold | Method 2 (h*) | E_test(Method2) | λ* (LR) | E_test(LR) | E_test(Baseline)")
     for r in table:
-        print(f"{r[0]:>10} | {r[1]:>12} | {r[2]:>14.1f} | {r[3]:>7} | {r[4]:>10.1f} | {r[5]:>15.1f}")
+        print(f"{r[0]:>10} | {r[1]:>12} | {r[2]:>14.2f} | {r[3]:>7} | {r[4]:>10.2f} | {r[5]:>15.2f}")
 
     return {
         "table_rows": table,          # array with columns: i, h*, E_ann, λ*, E_lr, E_base (E's in %)
@@ -245,3 +245,5 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
 # Example usage (after you define X, y):
 # results = run_classification(X, y, K_outer=10, K_inner=10, seed=1234)
 # ---------------------------
+
+
