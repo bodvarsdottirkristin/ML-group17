@@ -56,7 +56,9 @@ def main():
 
     # Classification
 
-    run_classification(X_cat, y_cat, K=10, seed=1234)
+    #run_classification(X_cat, y_cat, K=10, seed=1234)
+
+    run_classification(X_cat, y_cat)
 
     #ridge_regression(X, y_reg, seed=SEED)
 
