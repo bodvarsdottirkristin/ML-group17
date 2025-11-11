@@ -32,7 +32,7 @@ def split_test_train(X, y, train_idx, test_idx):
     return X_train, y_train, X_test, y_test
 
 
-def eval_logistic_regression(X_train_outer, y_train_outer, X_val_outer, y_val_outer, lambdas, CV_inner, fold_outer_idx, K=10):
+def log_reg(X_train_outer, y_train_outer, X_test_outer, y_test_outer, lambdas, CV_inner, fold_outer_idx, K=10):
     
     train_errors_inner = np.empty([K, K, len(lambdas)])
     test_errors_inner = np.empty([K, K, len(lambdas)])
@@ -46,7 +46,7 @@ def eval_logistic_regression(X_train_outer, y_train_outer, X_val_outer, y_val_ou
         X_train_inner, X_test_inner = standardize(X_train_inner, X_test_inner)
 
         for lam_idx, lam in enumerate(lambdas):
-            model = LogisticRegression(l1=lam)
+            model = LogisticRegression(penalty='l1', C=1/lam, solver='liblinear')
             model.fit(X_train_inner, y_train_inner)
 
             train_errors_inner[fold_outer_idx, fold_inner_idx, lam_idx] = np.mean((y_train_inner - model.predict(X_train_inner))**2, axis=0)
@@ -59,7 +59,7 @@ def eval_logistic_regression(X_train_outer, y_train_outer, X_val_outer, y_val_ou
     X_train_outer, X_test_outer = standardize(X_train_outer, X_test_outer)
 
     # Create and fit the model with the optimal lambda on the entire outer training set
-    model = Ridge(alpha=optimal_lambdas)
+    model = LogisticRegression(penalty='l1', C=1/optimal_lambda, solver='liblinear')
     model.fit(X_train_outer, y_train_outer)
 
     train_error_outer = np.mean((X_train_outer - model.predict(y_train_outer))**2, axis=0)
@@ -212,13 +212,14 @@ def run_classification(X, y, K=10, seed=1234):
         y_train, y_test = y[train_idx], y[test_idx]
 
         # Logistic regression
-        #best_lambda, logreg_train_error, logreg_test_error = eval_log_reg(X_train, y_train, X_test, y_test)
 
         # ANN model
 
         CV_inner = KFold(n_splits = K, shuffle=True, random_state=seed)
 
-        ann_model(X_train, y_train, X_test, y_test, CV_inner, outer_fold_idx)
+        log_reg(X_train, y_train, X_test, y_test, CV_inner=CV_inner, fold_outer_idx=outer_fold_idx)
+
+        #ann_model(X_train, y_train, X_test, y_test, CV_inner, outer_fold_idx)
 
 
         # results.append({

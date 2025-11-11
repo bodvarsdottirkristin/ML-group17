@@ -53,6 +53,7 @@ def main():
     # Classification
 
     run_classification(X, y_cat, K=10, seed=1234)
+    #ridge_regression(X, y_reg, seed=SEED)
 
 
 
