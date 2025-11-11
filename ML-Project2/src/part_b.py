@@ -22,35 +22,6 @@ def get_model(input_dim, hidden_dim, output_dim=1):
         torch.nn.Linear(hidden_dim, output_dim, bias=True),
     )
 
-def setup_storage_for_experiment(K_outer, K_inner, num_hyperparams):
-    # Setup storage for the optimal hyperparameters found from the inner CV
-    optimal_hyperparameters = np.empty(K_outer)
-
-    # Setup storage for model coefficients and errors for each experiment in all inner folds
-    ws_inner = np.empty((M + 1, K_outer, K_inner, num_hyperparams))
-    train_errors_inner = np.empty((K_outer, K_inner, num_hyperparams))
-    test_errors_inner = np.empty((K_outer, K_inner, num_hyperparams))
-
-    # Setup storage for model coefficients for each experiment in all outer folds
-    ws_outer = {
-        'not regularized': np.empty((M + 1, K_outer)),
-        'regularized': np.empty((M + 1, K_outer))
-    }
-    # Setup storage for errors as a dictionary
-    errors_outer = {
-        'train': {
-            'baseline (no features)': np.empty((K_outer, 1)), 
-            'not regularized': np.empty((K_outer, 1)),
-            'regularized': np.empty((K_outer, 1))
-        },
-        'test': {
-            'baseline (no features)': np.empty((K_outer, 1)), 
-            'not regularized': np.empty((K_outer, 1)),
-            'regularized': np.empty((K_outer, 1))
-        }
-    }
-    return optimal_hyperparameters, ws_inner, train_errors_inner, test_errors_inner, ws_outer, errors_outer
-
 def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=1234, show_plot=False):
 
     def train_ann_once(Xtr_np, ytr_np, h, lr, n_epochs, seed):
@@ -70,13 +41,13 @@ def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs
         return model
 
     # Grids
-    lambdas = np.logspace(-3, 3, 30)
+    lambdas = np.logspace(-5, 8, 14)
 
     K1, K2 = k
     CV_outer = KFold(n_splits=K1, shuffle=True, random_state=seed)
 
     rows = []
-    results = {}
+    ann_inner_history = []
 
     for k1, (train_index_outer, test_index_outer) in enumerate(CV_outer.split(X, y), start=1):
         print(f'Fold {k1}/{K1}')
@@ -87,7 +58,7 @@ def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs
 
         # INNER CV for ANN: pick h*
         CV_inner = KFold(n_splits=K2, shuffle=True, random_state=seed)
-        inner_scores_ann = {h: [] for h in hidden_dims}
+        inner_scores_ann = {h: {"train": [], "val": []} for h in hidden_dims}
 
         for k2, (train_index_inner, val_index_inner) in enumerate(CV_inner.split(X_train_outer, y_train_outer), start=1):
             # Inner split
@@ -102,14 +73,28 @@ def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs
             for h in hidden_dims:
                 model_ann = train_ann_once(X_train_std, y_train_inner, h=h, lr=lr, n_epochs=n_epochs, seed=seed)
                 with torch.no_grad():
-                    yhat_t = model_ann(torch.tensor(X_val_std, dtype=torch.float32))
-                    yhat = yhat_t.detach().cpu().view(-1).tolist()
-                mse = mean_squared_error(y_val_inner, yhat)
-                inner_scores_ann[h].append(mse)
+                    yhat_tr_t = model_ann(torch.tensor(X_train_std, dtype=torch.float32))
+                    yhat_va_t = model_ann(torch.tensor(X_val_std,   dtype=torch.float32))
+                    yhat_tr = yhat_tr_t.detach().cpu().view(-1).tolist()
+                    yhat_va = yhat_va_t.detach().cpu().view(-1).tolist()
+                tr_mse = mean_squared_error(y_train_inner, yhat_tr)
+                va_mse = mean_squared_error(y_val_inner,   yhat_va)
+                inner_scores_ann[h]["train"].append(tr_mse)
+                inner_scores_ann[h]["val"].append(va_mse)
 
-        h_star = min(inner_scores_ann, key=lambda h: np.mean(inner_scores_ann[h]))
-        print(f'    Selected hidden_dim={h_star} (inner-CV mean MSE={np.mean(inner_scores_ann[h_star]):.4f})')
+        avg_inner_val = {h: float(np.mean(inner_scores_ann[h]["val"])) for h in hidden_dims}
+        h_star = min(avg_inner_val, key=avg_inner_val.get)
+        print(f'    Selected hidden_dim={h_star} (inner-CV mean MSE={avg_inner_val[h_star]:.4f})')
 
+        mean_train_curve = [float(np.mean(inner_scores_ann[h]["train"])) for h in hidden_dims]
+        mean_val_curve   = [float(np.mean(inner_scores_ann[h]["val"]))   for h in hidden_dims]
+        ann_inner_history.append({
+            "fold": k1,
+            "h": list(hidden_dims),
+            "mean_train": mean_train_curve,
+            "mean_val":   mean_val_curve,
+            "h_star": int(h_star)
+        })
         # INNER CV for Ridge: pick lambda*
         inner_scores_ridge = []
         for lam in lambdas:
@@ -140,7 +125,7 @@ def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs
         with torch.no_grad():
             yhat_ann_t = ann_star(torch.tensor(X_test_std, dtype=torch.float32))
             yhat_ann = yhat_ann_t.detach().cpu().view(-1).tolist()
-            ann_Etest = float(mean_squared_error(y_test_outer, yhat_ann))
+        ann_Etest = float(mean_squared_error(y_test_outer, yhat_ann))
         print(f'    [Outer eval] ANN(h*={h_star}) Test MSE: {ann_Etest:.4f}')
 
         # Ridge lambda*
@@ -164,21 +149,25 @@ def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs
             "baseline_Etest": baseline_Etest
         })
 
-    fig, axs = plt.subplots(4, 3, figsize=(15, 12), sharey=True, sharex=True)
-    axs = axs.ravel()
-
-    for fold in range(K1):
-        ax = axs[fold]
-        for hidden_dim in hidden_dims:
-            ax.plot(results[fold][hidden_dim]['train'], label=f'hidden_dim={hidden_dim}')
-        ax.set_title(f'Fold {fold+1}')
-        ax.set_xlabel('Epoch')
+    fig, axes = plt.subplots(2, 5, figsize=(16, 6), sharex=True, sharey=True)
+    axes = axes.ravel()
+    for i, rec in enumerate(ann_inner_history):
+        ax = axes[i]
+        h_vals = rec["h"]
+        mean_tr = rec["mean_train"]
+        mean_va = rec["mean_val"]
+        h_best  = rec["h_star"]
+        ax.plot(h_vals, mean_va, marker='o', label='Inner CV mean (val)')
+        ax.plot(h_vals, mean_tr, marker='s', linestyle='--', label='Inner CV mean (train)')
+        ax.axvline(h_best, color='gray', linestyle=':', label=f'h*={h_best}')
+        ax.set_title(f'Outer fold {rec["fold"]}')
+        ax.set_xlabel('Hidden units (h)')
         ax.set_ylabel('MSE')
 
-    plt.suptitle('Training loss for different hidden units')
-    plt.tight_layout()
-    axs[0].legend()
-    plt.savefig("figures/part_b.png", dpi=300, bbox_inches='tight')
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', ncol=3, frameon=False, bbox_to_anchor=(0.5, 1.02))
+    plt.tight_layout(rect=[0,0,1,0.95])
+    plt.savefig("figures/part_b_ann_h_selection.png", dpi=300, bbox_inches='tight')
     if show_plot:
         plt.show()
 

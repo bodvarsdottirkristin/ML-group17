@@ -37,6 +37,7 @@ def fetch_data():
 def main():
 
     SEED = 1234
+    lambdas = np.logspace(-5, 8, 14)
     # Fetch data
     X, y_reg, y_cat = fetch_data()
 
@@ -45,7 +46,7 @@ def main():
     print(ridge_a)
 
     # Regression part B
-    table1  = ann_model(X, y_reg, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=SEED)
+    table1  = ann_model(X, y_reg, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=SEED, show_plot=True)
     print(table1)
 
     # Classification
