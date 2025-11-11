@@ -9,6 +9,7 @@ from matplotlib.lines import Line2D
 
 from src.part_a import ridge_regression
 from src.part_b import ann_model
+from src.part_c_test_hm import run_classification
 
 import pandas as pd
 import numpy as np
@@ -42,15 +43,16 @@ def main():
     X, y_reg, y_cat = fetch_data()
 
     # Regression part A
-    ridge_a = ridge_regression(X, y_reg, seed=SEED)
-    print(ridge_a)
+    #ridge_a = ridge_regression(X, y_reg, seed=SEED)
+    #print(ridge_a)
 
     # Regression part B
-    table1  = ann_model(X, y_reg, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=SEED, show_plot=True)
-    print(table1)
+    #table1  = ann_model(X, y_reg, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=SEED, show_plot=True)
+    #print(table1)
 
     # Classification
 
+    run_classification(X, y_cat, K=10, seed=1234)
 
 
 
