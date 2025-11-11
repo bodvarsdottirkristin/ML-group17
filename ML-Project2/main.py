@@ -28,19 +28,22 @@ def fetch_data():
     # Convert 'famhist' to numbers (0 = Absent, 1 = Present)
     df['famhist'] = df['famhist'].map({'Absent': 0, 'Present': 1})
 
-    # Split into features and target
-    X = df.drop(columns=['ldl', 'chd']).values
+    # Split into features and target for regression
+    X_reg = df.drop(columns=['ldl', 'chd']).values
     y_reg = df['ldl'].values
+
+    # Split into features and target for classification
+    X_cat = df.drop(columns=['chd']).values
     y_cat = df['chd'].values
     
-    return X, y_reg, y_cat
+    return X_reg, X_cat, y_reg, y_cat
 
 def main():
 
     SEED = 1234
     lambdas = np.logspace(-5, 8, 14)
     # Fetch data
-    X, y_reg, y_cat = fetch_data()
+    X_reg, X_cat, y_reg, y_cat = fetch_data()
 
     # Regression part A
     #ridge_a = ridge_regression(X, y_reg, seed=SEED)
@@ -52,7 +55,7 @@ def main():
 
     # Classification
 
-    run_classification(X, y_cat, K=10, seed=1234)
+    run_classification(X_cat, y_cat, K=10, seed=1234)
     #ridge_regression(X, y_reg, seed=SEED)
 
 
