@@ -7,7 +7,7 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
 
-def ridge_regression(X, y, lambdas=None, K=10, seed=1234, show_plot=True):
+def ridge_regression(X, y, lambdas=None, K=10, seed=1234, show_plot=False):
 
     if lambdas is None:
         lambdas = np.logspace(-3,3,30)
