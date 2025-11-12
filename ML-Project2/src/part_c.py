@@ -1,9 +1,11 @@
 import numpy as np
+from sklearn.pipeline import Pipeline
 import torch
 from sklearn.model_selection import StratifiedKFold
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from scipy.stats import chi2, binomtest
+import scipy.stats as st
 
 # ---------- Utilities ----------
 def standardize(X_train, X_test):
@@ -108,7 +110,7 @@ def ann_outer(X_train_outer, y_train_outer, X_test_outer, y_test_outer,
     X_tr, X_te = standardize(X_train_outer, X_test_outer)
     torch.manual_seed(seed)
     X_tr = torch.tensor(X_tr, dtype=torch.float32)
-    y_tr = torch.tensor(y_train_outer.reshape(-1, 1), dtype=torch.float32)
+    y_tr = torch.tensor(y_train_outer.reshape(-1, 1), dtype=torch.float32) # var vitlaust
     X_te_t = torch.tensor(X_te, dtype=torch.float32)
 
     model = get_model(X_tr.shape[1], opt_hidden, 1)
@@ -125,30 +127,85 @@ def ann_outer(X_train_outer, y_train_outer, X_test_outer, y_test_outer,
 
     with torch.no_grad():
         model.eval()
-        out_te = model(X_te_t).numpy().ravel()
-        yhat_te = (out_te >= 0.5).astype(int)
+        out_te = model(X_te_t).view(-1)       
+        yhat_te = (out_te >= 0.5).to(torch.int).tolist()
+        yhat_te = np.array(yhat_te, dtype=int) 
+        
 
     return opt_hidden, error_rate(y_test_outer, yhat_te), yhat_te
 
-# ---------- McNemar (paired) ----------
-def mcnemar_test(y_true, y_pred_a, y_pred_b):
+# confidence_interval_comparison function from Exercise 7 - Part 4
+def mcnemar(y_true, yhatA, yhatB, alpha=0.05, model_a_name='A', model_b_name='B'):
     """
-    Pools discordant counts across folds: b = A wrong, B right; c = A right, B wrong.
-    Returns: statistic, p_value, (b, c), CI for p=b/(b+c) via exact binomial (95%).
+    Perform McNemar's test to compare the accuracy of two classifiers.
+
+    Parameters:
+    - y_true: array-like, true labels
+    - yhatA: array-like, predicted labels by classifier A
+    - yhatB: array-like, predicted labels by classifier B
+    - alpha: float, significance level (default: 0.05)
+
+    Returns:
+    - E_theta: float, estimated difference in accuracy between classifiers A and B (theta_hat)
+    - CI: tuple, confidence interval of the estimated difference in accuracy
+    - p: float, p-value for the two-sided test of whether classifiers A and B have the same accuracy
     """
-    b = np.sum((y_pred_a != y_true) & (y_pred_b == y_true))
-    c = np.sum((y_pred_a == y_true) & (y_pred_b != y_true))
-    n = b + c
-    if n == 0:
-        # Models make identical decisions everywhere: p-value = 1, CI undefined -> (0,1)
-        return 0.0, 1.0, (b, c), (0.0, 1.0)
-    # McNemar with continuity correction
-    stat = (abs(b - c) - 1)**2 / (b + c)
-    p_val = 1 - chi2.cdf(stat, df=1)
-    # Exact binomial CI for p = b/n
-    bt = binomtest(b, n)
-    ci_low, ci_high = bt.proportion_ci(confidence_level=0.95, method='exact').low, bt.proportion_ci(confidence_level=0.95, method='exact').high
-    return stat, p_val, (b, c), (ci_low, ci_high)
+
+    # Set up the contingency table
+    nn = np.zeros((2, 2))
+
+    # 2.1) Fill in the contingency table
+    # Correctness indicators
+    cA = yhatA == y_true
+    cB = yhatB == y_true
+
+    # Fill the contingency table
+    nn[0, 0] = sum([cA[i] * cB[i] for i in range(len(cA))]) 
+    # Or a bit smarter: nn[0, 0] = sum(cA & cB)
+    nn[0, 1] = sum(cA & ~cB)
+    nn[1, 0] = sum(~cA & cB)
+    nn[1, 1] = sum(~cA & ~cB)
+
+    # get values from the contingency table
+    n = len(y_true)
+    n12 = nn[0, 1]
+    n21 = nn[1, 0]
+
+    # 2.2) Calculate E_theta and Q from the values in the contingency table
+    E_theta = (n12 - n21) / n
+
+    Q = (
+        n**2
+        * (n + 1)
+        * (E_theta + 1)
+        * (1 - E_theta)
+        / ((n * (n12 + n21) - (n12 - n21) ** 2))
+    )
+
+
+    # 2.3) Calculate f and g for the beta distribution
+    f = (E_theta + 1)/2 * (Q - 1)
+    g = (1 - E_theta)/2 * (Q - 1)
+
+    # Calculate confidence interval
+    CI = tuple(bound * 2 - 1 for bound in st.beta.interval(1 - alpha, a=f, b=g))
+
+    # Calculate p-value for the two-sided test using exact binomial test
+    p = 2 * st.binom.cdf(min([n12, n21]), n=n12 + n21, p=0.5)
+
+    print(f"Result of McNemars test using alpha = {alpha}\n")
+    print("Contingency table")
+    print(nn, "\n")
+    if n12 + n21 <= 10:
+        print("Warning, n12+n21 is low: n12+n21=", (n12 + n21))
+
+    print(f"Approximate 1-alpha confidence interval of theta: [thetaL,thetaU] = {CI[0]:.4f}, {CI[1]:.4f}\n")
+    print(
+        f"p-value for two-sided test {model_a_name} and {model_b_name} have same accuracy (exact binomial test): p={p}\n"
+    )
+
+    return E_theta, CI, p
+
 
 # ---------- Main runner ----------
 def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
@@ -166,7 +223,7 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
     y_hat_lr_all = []
     y_hat_ann_all = []
     y_hat_base_all = []
-
+    lam_stars = []
     for i, (tr_idx, te_idx) in enumerate(CV_outer.split(X, y), start=1):
         X_tr, y_tr, X_te, y_te = split_test_train(X, y, tr_idx, te_idx)
         CV_inner = StratifiedKFold(n_splits=K_inner, shuffle=True, random_state=seed)
@@ -194,6 +251,7 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
         y_hat_lr_all.append(yhat_lr)
         y_hat_ann_all.append(yhat_ann)
         y_hat_base_all.append(yhat_base)
+        lam_stars.append(lam_star)
 
         print(f"Outer fold {i}: ANN(h*={h_star}) E_test={test_err_ann:.3f} | "
               f"LR(λ*={lam_star}) E_test={test_err_lr:.3f} | "
@@ -208,25 +266,23 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
     y_base_cat = np.concatenate(y_hat_base_all)
 
     # Pairwise McNemar
-    stat_lr_vs_ann, p_lr_vs_ann, bc_lr_vs_ann, ci_lr_vs_ann = mcnemar_test(y_true_cat, y_lr_cat, y_ann_cat)
-    stat_lr_vs_base, p_lr_vs_base, bc_lr_vs_base, ci_lr_vs_base = mcnemar_test(y_true_cat, y_lr_cat, y_base_cat)
-    stat_ann_vs_base, p_ann_vs_base, bc_ann_vs_base, ci_ann_vs_base = mcnemar_test(y_true_cat, y_ann_cat, y_base_cat)
+    e_theta_lr_vs_ann, ci_lr_vs_ann,  p_lr_vs_ann = mcnemar(y_true_cat, y_lr_cat, y_ann_cat, model_a_name='Logistic regression', model_b_name='ANN')
+    e_theta_lr_vs_base, ci_lr_vs_base, p_lr_vs_base = mcnemar(y_true_cat, y_lr_cat, y_base_cat, model_a_name='Logistic regression', model_b_name='Baseline')
+    e_theta_ann_vs_base, ci_ann_vs_base, p_ann_vs_base = mcnemar(y_true_cat, y_ann_cat, y_base_cat, model_a_name='ANN', model_b_name='Baseline' )
 
     stats = {
         "LR vs ANN": {
-            "statistic": stat_lr_vs_ann, "p_value": p_lr_vs_ann,
-            "discordant_counts_(b,c)": bc_lr_vs_ann,
-            "binomial_CI_for_p=b/(b+c)": ci_lr_vs_ann
+            "e_theta": e_theta_lr_vs_ann, 
+            "p_value": p_lr_vs_ann,
+            "CI": ci_lr_vs_ann
         },
         "LR vs Baseline": {
-            "statistic": stat_lr_vs_base, "p_value": p_lr_vs_base,
-            "discordant_counts_(b,c)": bc_lr_vs_base,
-            "binomial_CI_for_p=b/(b+c)": ci_lr_vs_base
+            "e_theta": e_theta_lr_vs_base, "p_value": p_lr_vs_base,
+            "CI": ci_lr_vs_base
         },
         "ANN vs Baseline": {
-            "statistic": stat_ann_vs_base, "p_value": p_ann_vs_base,
-            "discordant_counts_(b,c)": bc_ann_vs_base,
-            "binomial_CI_for_p=b/(b+c)": ci_ann_vs_base
+            "e_theta": e_theta_ann_vs_base, "p_value": p_ann_vs_base,
+            "CI": ci_ann_vs_base
         }
     }
 
@@ -235,15 +291,13 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
     print("Outer fold | Method 2 (h*) | E_test(Method2) | λ* (LR) | E_test(LR) | E_test(Baseline)")
     for r in table:
         print(f"{r[0]:>10} | {r[1]:>12} | {r[2]:>14.2f} | {r[3]:>7} | {r[4]:>10.2f} | {r[5]:>15.2f}")
+    
+    #TODO: Bæta við part 5: Train a logistic regression
+    lambda_star_final = float(np.median(lam_star.values))
+    C_final = 1.0 / lambda_star_final
 
     return {
         "table_rows": table,          # array with columns: i, h*, E_ann, λ*, E_lr, E_base (E's in %)
         "mcnemar_stats": stats        # dict of p-values & CIs for three pairwise tests
     }
-
-# ---------------------------
-# Example usage (after you define X, y):
-# results = run_classification(X, y, K_outer=10, K_inner=10, seed=1234)
-# ---------------------------
-
 
