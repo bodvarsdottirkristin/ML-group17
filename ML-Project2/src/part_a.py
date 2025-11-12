@@ -47,6 +47,14 @@ def ridge_regression(X, y, lambdas=None, K=10, seed=1234, show_plot=False):
     best_lambda = float(lambdas[best_idx])
     best_mse    = float(mean_test[best_idx])
 
+    # Train final model on all data with best lambda
+    mu = np.mean(X, axis=0)
+    sigma = np.std(X, axis=0)
+    sigma[sigma == 0] = 1.0  # avoid division by 0
+    X_scaled = (X - mu) / sigma
+    
+    final_model = Ridge(alpha=best_lambda, fit_intercept=True, random_state=seed)
+    final_model.fit(X_scaled, y)
 
     plt.figure(figsize=(10,6))
     plt.semilogx(lambdas, mean_test, marker='o', label='Test (CV mean)')
@@ -67,5 +75,9 @@ def ridge_regression(X, y, lambdas=None, K=10, seed=1234, show_plot=False):
         'mean_train': mean_train,
         'mean_test': mean_test,
         'best_lambda': best_lambda,
-        'best_mse': best_mse
+        'best_mse': best_mse,
+        'coefficients': final_model.coef_,
+        'intercept': final_model.intercept_,
+        'scaler_mean': mu,
+        'scaler_std': sigma
     }

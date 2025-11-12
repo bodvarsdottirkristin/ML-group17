@@ -22,6 +22,7 @@ def fetch_data():
     Input:      None
     Output:     X : np.ndarray (Feature matrix)
                 y : np.ndarray (Target vector (ldl values))
+                feature_names : list (Feature names)
     """
     # Load data
     df = pd.read_csv('data/SAHeart.csv', index_col=0)
@@ -29,15 +30,25 @@ def fetch_data():
     # Convert 'famhist' to numbers (0 = Absent, 1 = Present)
     df['famhist'] = df['famhist'].map({'Absent': 0, 'Present': 1})
 
+<<<<<<< Updated upstream
     # Split into features and target for regression
     X_reg = df.drop(columns=['ldl', 'chd']).values
+=======
+    # Split into features and target
+    feature_names = df.drop(columns=['ldl', 'chd']).columns.tolist()
+    X = df.drop(columns=['ldl', 'chd']).values
+>>>>>>> Stashed changes
     y_reg = df['ldl'].values
 
     # Split into features and target for classification
     X_cat = df.drop(columns=['chd']).values
     y_cat = df['chd'].values
     
+<<<<<<< Updated upstream
     return X_reg, X_cat, y_reg, y_cat
+=======
+    return X, y_reg, y_cat, feature_names
+>>>>>>> Stashed changes
 
 def main():
 
@@ -47,11 +58,53 @@ def main():
     #lambdas = np.logspace(-5, 8, 14)
 
     # Fetch data
+<<<<<<< Updated upstream
     X_reg, X_cat, y_reg, y_cat = fetch_data()
 
     # Regression part A
     ridge_a = ridge_regression(X_reg, y_reg, seed=SEED)
+=======
+    X, y_reg, y_cat, feature_names = fetch_data()
+
+    # Regression part A
+    ridge_a = ridge_regression(X, y_reg, lambdas=lambdas, seed=SEED, show_plot=True)
+>>>>>>> Stashed changes
     print(ridge_a)
+    
+    # Print the linear function
+    print("\n" + "="*60)
+    print("Ridge Regression Linear Function (with optimal lambda)")
+    print("="*60)
+    print(f"Optimal lambda: {ridge_a['best_lambda']:.6e}")
+    print(f"Intercept: {ridge_a['intercept']:.6f}")
+    print("\nCoefficients (on standardized features):")
+    for name, coef in zip(feature_names, ridge_a['coefficients']):
+        print(f"  {name:15s}: {coef:10.6f}")
+    
+    # Print the linear function equation (standardized features)
+    print("\nLinear Function (standardized features):")
+    print(f"ldl = {ridge_a['intercept']:.6f}", end="")
+    for name, coef in zip(feature_names, ridge_a['coefficients']):
+        sign = "+" if coef >= 0 else "-"
+        print(f" {sign} {abs(coef):.6f} * {name}_std", end="")
+    print("\n")
+    print("(Note: Features are standardized before applying coefficients)")
+    
+    # Convert to original (non-standardized) features
+    # y = intercept + sum(beta_i * (x_i - mu_i) / sigma_i)
+    #   = intercept - sum(beta_i * mu_i / sigma_i) + sum((beta_i / sigma_i) * x_i)
+    mu = ridge_a['scaler_mean']
+    sigma = ridge_a['scaler_std']
+    original_coefs = ridge_a['coefficients'] / sigma
+    original_intercept = ridge_a['intercept'] - np.sum(ridge_a['coefficients'] * mu / sigma)
+    
+    print("\nLinear Function (original features):")
+    print(f"y = {original_intercept:.6f}", end="")
+    for name, coef in zip(feature_names, original_coefs):
+        sign = "+" if coef >= 0 else "-"
+        print(f" {sign} {abs(coef):.6f} * {name}", end="")
+    print("\n")
+    print("="*60 + "\n")
 
     # Regression part B
     table1, results  = ann_model(X_reg, y_reg, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=SEED)
