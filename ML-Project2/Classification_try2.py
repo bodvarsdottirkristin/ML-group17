@@ -4,6 +4,23 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Tuple, List, Any
 
+"""
+EXERCISE ORIGIN NOTICE (Global):
+- This script assembles classification code strictly from the DTU 02452 exercises you attached.
+- For each code section, we add a CITATION tag pointing to the exercise file and cell/section where the pattern originates,
+  and a CHANGES tag describing any adaptation (e.g., variable names, function wrapping, dataset path).
+
+Core sources:
+- 02452_exercise2_fall25/exercise2.ipynb: OneHotEncoder and label encoding usage hints
+- 02452_exercise4_fall25: Standardization formula (mean/std) applied within CV
+- 02452_exercise6_fall25/week6/exercise6.ipynb: Nested (two-level) cross-validation structure (outer/inner)
+- 02452_exercise7_fall25/exercise7.ipynb: StratifiedKFold + LogisticRegression usage and correlated t-test (Setup II)
+- 02452_exercise8_fall25/exercise8.ipynb (+ solution.html): Error rate computation and standardize-inside-fold guidance
+- 02452_exercise9_fall25/exercise9.ipynb: PyTorch ANN (Sequential, Sigmoid, BCELoss, SGD) and training loop
+
+Anything not present verbatim in the exercises is explicitly labeled under CHANGES.
+"""
+
 # From exercise 7 (02452_exercise7_fall25/exercise7.ipynb): StratifiedKFold usage and metrics/confusion utilities.
 # Changes: only imported the specific classes used here.
 from sklearn.model_selection import StratifiedKFold
@@ -23,6 +40,11 @@ def load_saheart_dataset(csv_path: str) -> Tuple[pd.DataFrame, pd.Series]:
     Load SAHeart.csv, keep features for classification and y=chd.
     - Manual source alignment: Project2 manual specifies CHD as target.
     - We will treat 'famhist' as categorical for one-hot (exercise 2 approach).
+
+    CITATION:
+      - (Exercise 2) OneHotEncoder/LabelEncoder hints, structure for X/y split
+    CHANGES:
+      - Adapted to SAHeart columns; drops 'ldl' for classification.
     """
     df = pd.read_csv(csv_path, index_col=0)
     # Keep classification features (drop 'ldl' which belongs to regression part)
@@ -53,6 +75,13 @@ def fit_preprocessor(
     - OneHotEncoder usage from exercise 2 (exercise2.ipynb Task 3.7 hint/solution).
     - Standardization formula from exercise 4 (exercise4.ipynb): (x - mean) / std with ddof=1.
       Changes: apply only to numeric columns; add 1e-8 epsilon for stability.
+
+    CITATION:
+      - (Exercise 2) OneHotEncoder usage and get_feature_names_out pattern
+      - (Exercise 4) Standardization (mean/std with ddof=1)
+    CHANGES:
+      - Wrapped into a reusable function so it can be called inside folds.
+      - Added epsilon to avoid division by zero.
     """
     state: Dict[str, Any] = {}
 
@@ -89,6 +118,11 @@ def transform_with_preprocessor(
     Transform features using fitted state (no refit).
     - Standardization and OneHotEncoder application per exercise 2 & 4, applied inside CV folds (exercise 8: standardize inside folds).
       Changes: Concatenate [numeric_std | ohe_cats] and return numpy array.
+
+    CITATION:
+      - (Exercise 8) Standardize within folds; do not leak validation info.
+    CHANGES:
+      - Concatenation and feature_names return for compatibility.
     """
     parts: List[np.ndarray] = []
     feature_names: List[str] = []
@@ -120,6 +154,11 @@ def majority_class_predictor(y_train: np.ndarray, n: int) -> np.ndarray:
     """
     Baseline: predict majority class of training set.
     - Error rate calculation pattern from exercise 8 (exercise8.ipynb): (y != y_est).sum() / N.
+
+    CITATION:
+      - (Exercise 8) Error rate definition and computation
+    CHANGES:
+      - Implemented a majority class baseline per project description.
     """
     vals, counts = np.unique(y_train, return_counts=True)
     maj = vals[np.argmax(counts)]
@@ -144,6 +183,14 @@ def tune_logistic_lambda_inner_cv(
     - Standardize inside inner folds (exercise 8 Task 2 guidance).
     - Error rate per exercise 8.
     Returns best_lambda and an example fitted outer preprocessor (None here).
+
+    CITATION:
+      - (Exercise 6) Nested CV pattern (outer/inner KFold loops)
+      - (Exercise 7) LogisticRegression usage (+ StratifiedKFold import)
+      - (Exercise 8) Error rate metric
+    CHANGES:
+      - Classification (error rate) instead of MSE; parameterized lambda grid.
+      - Used C=1/lambda mapping for scikit-learn logistic.
     """
     skf_inner = StratifiedKFold(n_splits=K_inner, shuffle=True, random_state=seed)
 
@@ -206,6 +253,11 @@ def build_ann_model(input_dim: int, hidden_units: int) -> torch.nn.Sequential:
     """
     From exercise 9 (exercise9.ipynb get_model): torch.nn.Sequential with Linear-ReLU-Linear-Sigmoid for binary classification.
     Changes: parameterized hidden_units.
+
+    CITATION:
+      - (Exercise 9) get_model(input_dim, hidden_dim, output_dim) with Sequential, ReLU, Sigmoid
+    CHANGES:
+      - Wrapped with explicit hidden_units argument; output_dim=1 for binary.
     """
     return torch.nn.Sequential(
         torch.nn.Linear(in_features=input_dim, out_features=hidden_units, bias=True),
@@ -218,7 +270,6 @@ def build_ann_model(input_dim: int, hidden_units: int) -> torch.nn.Sequential:
 def train_ann_binary(
     X_tr: np.ndarray,
     y_tr: np.ndarray,
-    X_va: np.ndarray,
     n_epochs: int = 1000,
     lr: float = 0.01,
     hidden_units: int = 8,
@@ -275,7 +326,7 @@ def tune_ann_hidden_inner_cv(
             X_tr, _ = transform_with_preprocessor(X_tr_df, state)
             X_va, _ = transform_with_preprocessor(X_va_df, state)
 
-            model = train_ann_binary(X_tr, y_tr, X_va, n_epochs=n_epochs, lr=lr, hidden_units=H, seed=seed)
+            model = train_ann_binary(X_tr, y_tr, n_epochs=n_epochs, lr=lr, hidden_units=H, seed=seed)
             with torch.no_grad():
                 y_prob = model(torch.tensor(X_va, dtype=torch.float32)).numpy().reshape(-1)
             y_hat = (y_prob >= 0.5).astype(int)
@@ -303,7 +354,7 @@ def fit_eval_ann_once(
     X_tr, _ = transform_with_preprocessor(X_train_df, state)
     X_te, _ = transform_with_preprocessor(X_test_df, state)
 
-    model = train_ann_binary(X_tr, y_train, X_te, n_epochs=n_epochs, lr=lr, hidden_units=hidden_units, seed=seed)
+    model = train_ann_binary(X_tr, y_train, n_epochs=n_epochs, lr=lr, hidden_units=hidden_units, seed=seed)
     with torch.no_grad():
         y_prob = model(torch.tensor(X_te, dtype=torch.float32)).numpy().reshape(-1)
     y_hat = (y_prob >= 0.5).astype(int)
@@ -318,6 +369,11 @@ def correlated_ttest(r: np.ndarray, rho: float, alpha: float = 0.05) -> Tuple[fl
     """
     From exercise 7 (exercise7.ipynb Part 5, correlated t-test function).
     Changes: direct numpy/scipy implementation as a function here.
+
+    CITATION:
+      - (Exercise 7) correlated t-test (Setup II) function signature and math
+    CHANGES:
+      - Packaged as standalone function for reuse; identical formulas.
     """
     import scipy.stats as st
 
@@ -431,6 +487,80 @@ def run_nested_cv_classification(
     return {"rows": results_df, "summary": summary}
 
 
+def refit_logistic_for_interpretability(
+    X_df: pd.DataFrame,
+    y: np.ndarray,
+    numeric_cols: List[str],
+    categorical_cols: List[str],
+    chosen_lambdas: List[float],
+):
+    """
+    Refit Logistic on all data with a "reasonable" λ (median of λ_i*), per manual §9.
+
+    CITATION:
+      - (Project manual §9) Refit logistic with median λ for interpretability only.
+    CHANGES:
+      - Implements the refit and prints standardized coefficient magnitudes.
+    """
+    lam = float(np.median(chosen_lambdas)) if len(chosen_lambdas) else 1.0
+    state = fit_preprocessor(X_df, numeric_cols, categorical_cols)
+    X_all, feature_names = transform_with_preprocessor(X_df, state)
+    C = 1.0 / lam if lam > 0 else 1e6
+    clf = LogisticRegression(penalty="l2", C=C, solver="lbfgs", max_iter=2000)
+    clf.fit(X_all, y)
+    coefs = clf.coef_.reshape(-1)
+    intercept = float(clf.intercept_[0])
+
+    # Print top coefficients by absolute value
+    abs_idx = np.argsort(-np.abs(coefs))
+    top_k = min(10, len(abs_idx))
+    print("\nFinal logistic refit for interpretability only (median λ):")
+    print(f"- λ_median = {lam:.2e}, C={1.0/lam if lam>0 else 1e6:.3g}")
+    print(f"- Intercept (standardized space): {intercept:.6f}")
+    print("- Top |standardized coefficients|:")
+    for i in range(top_k):
+        j = abs_idx[i]
+        print(f"  {feature_names[j]:30s}  coef={coefs[j]: .6f}")
+
+    print("\nHow logistic predicts (binary):")
+    print("  Compute z = β0 + Σ_j β_j x_j_std; then p = σ(z) = 1/(1+exp(-z)). Predict 1 if p≥0.5 else 0.")
+    return {"lambda_median": lam, "intercept": intercept, "coefs": coefs, "feature_names": feature_names}
+
+
+def print_answers_report(X_df: pd.DataFrame, results: Dict[str, Any]):
+    """
+    Prints answers to the five required questions from 02452project_2.pdf.
+    """
+    rows = results["rows"]
+    summary = results["summary"]
+
+    print("\nQ1) Problem and type:")
+    print("- We predict CHD from the remaining SA-Heart attributes. This is a binary classification problem (CHD ∈ {0,1}).")
+
+    print("\nQ2) Models and hyperparameters:")
+    print("- Baseline: train-majority (predicts the majority class of the TRAIN split).")
+    print("- Logistic regression (L2): λ ∈ logspace(1e-4, 1e2); implemented via C=1/λ.")
+    print("- Method 2 (ANN, 1 hidden layer): hidden units H ∈ {1,2,4,8,16,32}.")
+    print("  Grids chosen per manual suggestions and exercise 9 patterns (small-capacity ANN).")
+
+    print("\nQ3) Two-level CV results (reuse outer splits for all models):")
+    print(rows.to_string(index=False))
+    print("Mean outer-test errors:", summary["mean_outer_errors"])
+    print("Brief discussion: ANN adds nonlinearity; logistic is strong baseline for linear separability;")
+    print("baseline provides a sanity floor. Per-fold variability indicates dependence on split; nested CV mitigates selection bias.")
+
+    print("\nQ4) Statistical comparison (Setup II, book §11.4; exercise 7):")
+    for k, v in summary["setupII_tests"].items():
+        CI = v["CI95"]
+        print(f"- {k}: r_hat={v['r_hat']:.4f}, CI=({CI[0]:.4f},{CI[1]:.4f}), p={v['p_value']:.4g}")
+    print("Interpretation: r_hat>0 means first method has higher error. Use p and CI to conclude superiority or parity.")
+
+    print("\nQ5) Final logistic refit and explanation:")
+    numeric_cols, categorical_cols = split_feature_types(X_df)
+    refit_logistic_for_interpretability(X_df, results["y_all"], numeric_cols, categorical_cols, summary["selected_lambdas"])
+    print("Compare with regression part: standardized |coef| magnitudes indicate feature influence; interpret with caution.")
+
+
 def main():
     # Configuration per manual
     seed = 1234
@@ -442,6 +572,8 @@ def main():
 
     X_df, y = load_saheart_dataset(data_path)
     out = run_nested_cv_classification(X_df, y.values, K_outer=K_outer, K_inner=K_inner, seed=seed)
+    # add y_all to results for final refit (kept separate to keep provenance clear)
+    out["y_all"] = y.values
 
     print("\nPer-fold results:")
     print(out["rows"].to_string(index=False))
@@ -454,6 +586,9 @@ def main():
     for k, stats in out["summary"]["setupII_tests"].items():
         CI = stats["CI95"]
         print(f"- {k}: r_hat={stats['r_hat']:.4f}, CI=({CI[0]:.4f}, {CI[1]:.4f}), p={stats['p_value']:.4g}")
+
+    # Print formal answers Q1-Q5
+    print_answers_report(X_df, out)
 
 
 if __name__ == "__main__":
