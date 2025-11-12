@@ -30,25 +30,16 @@ def fetch_data():
     # Convert 'famhist' to numbers (0 = Absent, 1 = Present)
     df['famhist'] = df['famhist'].map({'Absent': 0, 'Present': 1})
 
-<<<<<<< Updated upstream
-    # Split into features and target for regression
-    X_reg = df.drop(columns=['ldl', 'chd']).values
-=======
     # Split into features and target
     feature_names = df.drop(columns=['ldl', 'chd']).columns.tolist()
     X = df.drop(columns=['ldl', 'chd']).values
->>>>>>> Stashed changes
     y_reg = df['ldl'].values
 
     # Split into features and target for classification
     X_cat = df.drop(columns=['chd']).values
     y_cat = df['chd'].values
     
-<<<<<<< Updated upstream
-    return X_reg, X_cat, y_reg, y_cat
-=======
     return X, y_reg, y_cat, feature_names
->>>>>>> Stashed changes
 
 def main():
 
@@ -58,17 +49,10 @@ def main():
     #lambdas = np.logspace(-5, 8, 14)
 
     # Fetch data
-<<<<<<< Updated upstream
-    X_reg, X_cat, y_reg, y_cat = fetch_data()
-
-    # Regression part A
-    ridge_a = ridge_regression(X_reg, y_reg, seed=SEED)
-=======
     X, y_reg, y_cat, feature_names = fetch_data()
 
     # Regression part A
     ridge_a = ridge_regression(X, y_reg, lambdas=lambdas, seed=SEED, show_plot=True)
->>>>>>> Stashed changes
     print(ridge_a)
     
     # Print the linear function
