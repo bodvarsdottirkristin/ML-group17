@@ -1,11 +1,9 @@
 import numpy as np
-from sklearn.pipeline import Pipeline
 import torch
 from sklearn.model_selection import StratifiedKFold
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-from scipy.stats import chi2, binomtest
 import scipy.stats as st
+import pandas as pd
 
 # ---------- Utilities ----------
 def standardize(X_train, X_test):
@@ -29,18 +27,18 @@ def baseline_predict(y_train, n_test):
 
 # ---------- Logistic Regression (Method: LR) ----------
 def log_reg_outer(X_train_outer, y_train_outer, X_test_outer, y_test_outer,
-                  lambdas, CV_inner, fold_outer_idx, K_inner):
+                  lambdas, inner_splits, fold_outer_idx, K_inner):
 
     test_errors_inner = np.empty((K_inner, len(lambdas)))
 
     # Inner CV to pick lambda
-    for fold_inner_idx, (tr_in_idx, te_in_idx) in enumerate(CV_inner.split(X_train_outer, y_train_outer)):
+    for fold_inner_idx, (tr_in_idx, te_in_idx) in enumerate(inner_splits):
         X_tr_in, y_tr_in, X_te_in, y_te_in = split_test_train(X_train_outer, y_train_outer, tr_in_idx, te_in_idx)
         X_tr_in, X_te_in = standardize(X_tr_in, X_te_in)
 
         for lam_idx, lam in enumerate(lambdas):
             Cval = 1.0 / lam
-            model = LogisticRegression(penalty='l1', C=Cval, solver='liblinear', max_iter=1000)
+            model = LogisticRegression(penalty='l2', C=Cval, solver='lbfgs', max_iter=1000)
             model.fit(X_tr_in, y_tr_in)
             yhat = model.predict(X_te_in)
             test_errors_inner[fold_inner_idx, lam_idx] = error_rate(y_te_in, yhat)
@@ -50,7 +48,7 @@ def log_reg_outer(X_train_outer, y_train_outer, X_test_outer, y_test_outer,
 
     # Refit on outer-train with optimal lambda and evaluate on outer-test
     X_tr, X_te = standardize(X_train_outer, X_test_outer)
-    model = LogisticRegression(penalty='l1', C=1.0/opt_lambda, solver='liblinear', max_iter=1000)
+    model = LogisticRegression(penalty='l2', C=1.0/opt_lambda, solver='lbfgs', max_iter=1000)
     model.fit(X_tr, y_train_outer)
     yhat_tr = model.predict(X_tr)
     yhat_te = model.predict(X_te)
@@ -67,13 +65,13 @@ def get_model(input_dim, hidden_dim, output_dim=1):
     )
 
 def ann_outer(X_train_outer, y_train_outer, X_test_outer, y_test_outer,
-              hidden_dims, CV_inner, fold_outer_idx, K_inner,
+              hidden_dims, inner_splits, fold_outer_idx, K_inner,
               lr=0.01, n_epochs=500, seed=1234):
 
-    val_losses_inner = np.empty((K_inner, len(hidden_dims)))
+    val_err_inner = np.empty((K_inner, len(hidden_dims)))
 
     # Inner CV: select hidden_dim minimizing validation error rate (we’ll evaluate by BCE but rank by error)
-    for fold_inner_idx, (tr_in_idx, te_in_idx) in enumerate(CV_inner.split(X_train_outer, y_train_outer)):
+    for fold_inner_idx, (tr_in_idx, te_in_idx) in enumerate(inner_splits):
         X_tr_in, y_tr_in, X_te_in, y_te_in = split_test_train(X_train_outer, y_train_outer, tr_in_idx, te_in_idx)
         X_tr_in, X_te_in = standardize(X_tr_in, X_te_in)
 
@@ -101,9 +99,9 @@ def ann_outer(X_train_outer, y_train_outer, X_test_outer, y_test_outer,
                 out_val = model(X_te_in)
                 preds = (out_val >= 0.5).float()
                 err = (preds != y_te_in).float().mean().item()
-                val_losses_inner[fold_inner_idx, h_idx] = err
+                val_err_inner[fold_inner_idx, h_idx] = err
 
-    opt_h_idx = np.argmin(np.mean(val_losses_inner, axis=0))
+    opt_h_idx = np.argmin(np.mean(val_err_inner, axis=0))
     opt_hidden = hidden_dims[opt_h_idx]
 
     # Train on outer-train; evaluate on outer-test
@@ -208,10 +206,12 @@ def mcnemar(y_true, yhatA, yhatB, alpha=0.05, model_a_name='A', model_b_name='B'
 
 
 # ---------- Main runner ----------
-def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
+def run_classification(X, y, feature_names, K_outer=10, K_inner=10, seed=1234,
                        lambdas=(1e-4, 1e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1, 5),
                        hidden_dims=(1, 2, 5, 10, 20, 50),
                        ann_lr=0.01, ann_epochs=500):
+    
+    torch.manual_seed(seed)
 
     assert set(np.unique(y)).issubset({0, 1}), "y must be binary {0,1}"
 
@@ -228,14 +228,16 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
         X_tr, y_tr, X_te, y_te = split_test_train(X, y, tr_idx, te_idx)
         CV_inner = StratifiedKFold(n_splits=K_inner, shuffle=True, random_state=seed)
 
+        inner_splits = list(CV_inner.split(X_tr, y_tr))
+
         # Logistic regression
         lam_star, train_err_lr, test_err_lr, yhat_lr = log_reg_outer(
-            X_tr, y_tr, X_te, y_te, lambdas, CV_inner, i-1, K_inner
+            X_tr, y_tr, X_te, y_te, lambdas, inner_splits, i-1, K_inner
         )
 
         # Method 2: ANN
         h_star, test_err_ann, yhat_ann = ann_outer(
-            X_tr, y_tr, X_te, y_te, hidden_dims, CV_inner, i-1, K_inner,
+            X_tr, y_tr, X_te, y_te, hidden_dims, inner_splits, i-1, K_inner,
             lr=ann_lr, n_epochs=ann_epochs, seed=seed
         )
 
@@ -256,6 +258,10 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
         print(f"Outer fold {i}: ANN(h*={h_star}) E_test={test_err_ann:.3f} | "
               f"LR(λ*={lam_star}) E_test={test_err_lr:.3f} | "
               f"Baseline(most={base_class}) E_test={test_err_base:.3f}")
+        
+    # Choose a single lambda to work with
+    lambda_star_final = float(np.median(lam_stars))
+    C_final = 1.0 / lambda_star_final
 
     table = np.array(table_rows, dtype=object)
 
@@ -266,38 +272,70 @@ def run_classification(X, y, K_outer=10, K_inner=10, seed=1234,
     y_base_cat = np.concatenate(y_hat_base_all)
 
     # Pairwise McNemar
-    e_theta_lr_vs_ann, ci_lr_vs_ann,  p_lr_vs_ann = mcnemar(y_true_cat, y_lr_cat, y_ann_cat, model_a_name='Logistic regression', model_b_name='ANN')
-    e_theta_lr_vs_base, ci_lr_vs_base, p_lr_vs_base = mcnemar(y_true_cat, y_lr_cat, y_base_cat, model_a_name='Logistic regression', model_b_name='Baseline')
-    e_theta_ann_vs_base, ci_ann_vs_base, p_ann_vs_base = mcnemar(y_true_cat, y_ann_cat, y_base_cat, model_a_name='ANN', model_b_name='Baseline' )
+    e_theta_lr_vs_ann, ci_lr_vs_ann,  p_lr_vs_ann = mcnemar(
+        y_true_cat, y_lr_cat, y_ann_cat,
+        model_a_name='Logistic regression', model_b_name='ANN'
+    )
+    e_theta_lr_vs_base, ci_lr_vs_base, p_lr_vs_base = mcnemar(
+        y_true_cat, y_lr_cat, y_base_cat,
+        model_a_name='Logistic regression', model_b_name='Baseline'
+    )
+    e_theta_ann_vs_base, ci_ann_vs_base, p_ann_vs_base = mcnemar(
+        y_true_cat, y_ann_cat, y_base_cat,
+        model_a_name='ANN', model_b_name='Baseline'
+    )
 
-    stats = {
-        "LR vs ANN": {
-            "e_theta": e_theta_lr_vs_ann, 
-            "p_value": p_lr_vs_ann,
-            "CI": ci_lr_vs_ann
+    # --- Create summary DataFrame of pairwise McNemar results ---
+    summary_df = pd.DataFrame([
+        {
+            "Comparison": "Logistic Regression vs ANN",
+            "e_theta": e_theta_lr_vs_ann,
+            "CI_low": ci_lr_vs_ann[0],
+            "CI_high": ci_lr_vs_ann[1],
+            "p_value": p_lr_vs_ann
         },
-        "LR vs Baseline": {
-            "e_theta": e_theta_lr_vs_base, "p_value": p_lr_vs_base,
-            "CI": ci_lr_vs_base
+        {
+            "Comparison": "Logistic Regression vs Baseline",
+            "e_theta": e_theta_lr_vs_base,
+            "CI_low": ci_lr_vs_base[0],
+            "CI_high": ci_lr_vs_base[1],
+            "p_value": p_lr_vs_base
         },
-        "ANN vs Baseline": {
-            "e_theta": e_theta_ann_vs_base, "p_value": p_ann_vs_base,
-            "CI": ci_ann_vs_base
+        {
+            "Comparison": "ANN vs Baseline",
+            "e_theta": e_theta_ann_vs_base,
+            "CI_low": ci_ann_vs_base[0],
+            "CI_high": ci_ann_vs_base[1],
+            "p_value": p_ann_vs_base
         }
-    }
+    ])
 
-    # Pretty print Table 2–style header
-    print("\nTwo-level cross-validation table (error rates in %):")
-    print("Outer fold | Method 2 (h*) | E_test(Method2) | λ* (LR) | E_test(LR) | E_test(Baseline)")
-    for r in table:
-        print(f"{r[0]:>10} | {r[1]:>12} | {r[2]:>14.2f} | {r[3]:>7} | {r[4]:>10.2f} | {r[5]:>15.2f}")
-    
-    #TODO: Bæta við part 5: Train a logistic regression
-    lambda_star_final = float(np.median(lam_star.values))
+    # --- Convert outer-fold results to a clean DataFrame (like Part B) ---
+    table_df = pd.DataFrame(
+        table_rows,
+        columns=["outer_fold", "h_star", "ann_Etest", "lambda_star",
+                 "ridge_Etest", "baseline_Etest"]
+    )
+
+    # --- Fit final logistic regression on full data for interpretation ---
+    mu = np.mean(X, axis=0)
+    sigma = np.std(X, axis=0)
+    sigma[sigma == 0] = 1.0
+    X_scaled = (X - mu) / sigma
+
+    lambda_star_final = float(np.median(lam_stars))
     C_final = 1.0 / lambda_star_final
+    final_lr = LogisticRegression(penalty='l2', C=C_final,
+                                  solver='lbfgs', max_iter=1000)
+    final_lr.fit(X_scaled, y)
 
-    return {
-        "table_rows": table,          # array with columns: i, h*, E_ann, λ*, E_lr, E_base (E's in %)
-        "mcnemar_stats": stats        # dict of p-values & CIs for three pairwise tests
-    }
+    print(f"\nFinal logistic regression trained on full data with λ={lambda_star_final:.4f}")
+    print("Intercept:", final_lr.intercept_[0])
+    print("Top 5 coefficients (standardized scale):")
+    top5_idx = np.argsort(np.abs(final_lr.coef_[0]))[::-1][:5]
+    for i in top5_idx:
+        print(f"  {feature_names[i]}: coef={final_lr.coef_[0][i]:.4f}")
+
+    # --- Return in the same format as Part B ---
+    return table_df, summary_df
 
