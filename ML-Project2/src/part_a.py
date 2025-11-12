@@ -1,27 +1,21 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import sklearn.linear_model as lm
-import seaborn as sns
 
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
 
-def ridge_regression(X, y, lambdas=None, K=10, seed=1234, show_plot=False):
-
-    if lambdas is None:
-        lambdas = np.logspace(-3,3,30)
+def ridge_regression(X, y, lambdas, K=10, seed=1234, show_plot=False):
 
     CV = KFold(n_splits=K, shuffle=True, random_state=seed)
+    splits = list(CV.split(X, y))
 
     # Create a matrix to store results
     train_error = np.empty([len(lambdas), K])
     test_error = np.empty([len(lambdas), K])
 
     for lam_idx, lam in enumerate(lambdas):
-
-        # Loop over inner folds
-        for fold_idx, (train_idx, test_idx) in enumerate(CV.split(X, y)):
+        for fold_idx, (train_idx, test_idx) in enumerate(splits):
             X_train, y_train = X[train_idx], y[train_idx]
             X_test, y_test = X[test_idx], y[test_idx]
 
@@ -34,7 +28,7 @@ def ridge_regression(X, y, lambdas=None, K=10, seed=1234, show_plot=False):
             X_test = (X_test - mu) / sigma
 
             # Train model
-            model = Ridge(alpha = lam, fit_intercept=True, random_state=seed)
+            model = Ridge(alpha = lam, fit_intercept=True)
             model.fit(X_train, y_train)
 
             # Calculate error
@@ -53,12 +47,13 @@ def ridge_regression(X, y, lambdas=None, K=10, seed=1234, show_plot=False):
     sigma[sigma == 0] = 1.0  # avoid division by 0
     X_scaled = (X - mu) / sigma
     
-    final_model = Ridge(alpha=best_lambda, fit_intercept=True, random_state=seed)
+    final_model = Ridge(alpha=best_lambda, fit_intercept=True)
     final_model.fit(X_scaled, y)
 
     plt.figure(figsize=(10,6))
     plt.semilogx(lambdas, mean_test, marker='o', label='Test (CV mean)')
     plt.semilogx(lambdas, mean_train, marker='s', linestyle='--', label='Train (CV mean)')
+
     plt.axvline(best_lambda, color='gray', linestyle=':', label=f'Best λ={best_lambda:.2e}')
     plt.title("Generalization Error vs. Regularization Strength (λ)")
     plt.xlabel("Regularization Strength (λ)")
