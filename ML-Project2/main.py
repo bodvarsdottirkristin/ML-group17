@@ -9,7 +9,6 @@ from matplotlib.lines import Line2D
 
 from src.part_a import ridge_regression
 from src.part_b import ann_model
-#from src.part_c_test_hm import run_classification
 from src.part_c import *
 
 import pandas as pd
@@ -46,10 +45,12 @@ def main():
     SEED = 1234
 
     # Better Grids ?
-    #lambdas = np.logspace(-5, 8, 14)
+    lambdas = np.logspace(-4, 5, 20)
 
     # Fetch data
     X, y_reg, y_cat, feature_names = fetch_data()
+
+
 
     # Regression part A
     ridge_a = ridge_regression(X, y_reg, lambdas=lambdas, seed=SEED, show_plot=True)
@@ -91,8 +92,9 @@ def main():
     print("="*60 + "\n")
 
     # Regression part B
-    table1, results  = ann_model(X_reg, y_reg, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=SEED)
+    table1, results, ttest_df  = ann_model(X, y_reg, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=SEED)
     print(table1)
+    print(ttest_df)
 
 
     # Part B - 3. Statistical evaluation, setup I
@@ -100,7 +102,7 @@ def main():
     
     # Classification
 
-    results = run_classification(X_cat, y_cat, K_outer=10, K_inner=10, seed=1234)
+    results = run_classification(X, y_cat, feature_names=feature_names, K_outer=10, K_inner=10, seed=1234)
     print(results)
 
 

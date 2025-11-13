@@ -48,6 +48,24 @@ def confidence_interval_comparison(y_true, y_preds_A, y_preds_B, loss_fn, alpha=
 
     return z_hat, CI, p_value
 
+# CHAT CREATED
+def paired_t_on_outer_mse(mse_A, mse_B, alpha=0.05):
+    """
+    mse_A, mse_B: arrays of length K1 with outer-fold test MSEs for model A and B.
+    Returns (mean_diff, (CI_low, CI_high), p_value) where diff = A - B.
+    """
+    import numpy as np, scipy.stats as st
+    d = np.asarray(mse_A) - np.asarray(mse_B)
+    K = d.size
+    d_bar = d.mean()
+    s = d.std(ddof=1)
+    sem = s / np.sqrt(K)
+    t = d_bar / sem
+    p = 2 * st.t.sf(np.abs(t), df=K-1)
+    ci = st.t.interval(0.95, df=K-1, loc=d_bar, scale=sem)
+    return float(d_bar), (float(ci[0]), float(ci[1])), float(p)
+##
+
 def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs=1000, seed=1234, show_plot=False,  lambdas=None):
 
     if lambdas is None:
@@ -89,9 +107,10 @@ def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs
 
         # INNER CV for ANN: pick h*
         CV_inner = KFold(n_splits=K2, shuffle=True, random_state=seed)
+        inner_splits = list(CV_inner.split(X_train_outer, y_train_outer))
         inner_scores_ann = {h: {"train": [], "val": []} for h in hidden_dims}
 
-        for k2, (train_index_inner, val_index_inner) in enumerate(CV_inner.split(X_train_outer, y_train_outer), start=1):
+        for k2, (train_index_inner, val_index_inner) in enumerate(inner_splits):
             # Inner split
             X_train_inner = X_train_outer[train_index_inner]
             X_val_inner   = X_train_outer[val_index_inner]
@@ -130,7 +149,7 @@ def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs
         inner_scores_ridge = []
         for lam in lambdas:
             fold_mse = []
-            for train_index_inner, val_index_inner in CV_inner.split(X_train_outer, y_train_outer):
+            for train_index_inner, val_index_inner in inner_splits:
                 X_train_inner = X_train_outer[train_index_inner]
                 X_val_inner   = X_train_outer[val_index_inner]
                 y_train_inner = y_train_outer[train_index_inner]
@@ -211,6 +230,31 @@ def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs
     # Create table for the 2-fold CV of the three models
     table1 = pd.DataFrame(rows, columns=["outer_fold","h_star","ann_Etest","lambda_star","ridge_Etest","baseline_Etest"])
 
+    # CHAT GPT GENERATED ------------------------------
+    # --- Paired t-tests on outer-fold MSEs (A - B) ---
+    mse_ann   = [r["ann_Etest"]      for r in rows]
+    mse_ridge = [r["ridge_Etest"]    for r in rows]
+    mse_base  = [r["baseline_Etest"] for r in rows]
+
+    print("\nPaired t-tests on outer-fold MSEs (A - B):")
+    ttest_rows = []
+    for Aname, A, Bname, B in [
+        ("ANN",   mse_ann,   "Ridge",    mse_ridge),
+        ("ANN",   mse_ann,   "Baseline", mse_base),
+        ("Ridge", mse_ridge, "Baseline", mse_base),
+    ]:
+        dbar, ci, p = paired_t_on_outer_mse(A, B, alpha=0.05)
+        print(f"{Aname} - {Bname}: mean Δ={dbar:.4f}, CI[{ci[0]:.4f}, {ci[1]:.4f}], p={p:.4g}")
+        ttest_rows.append({
+            "Comparison": f"{Aname} - {Bname}",
+            "mean_diff (A-B)": dbar,
+            "CI_low": ci[0],
+            "CI_high": ci[1],
+            "p_value": p
+        })
+    ttest_df = pd.DataFrame(ttest_rows)
+
+
     y_true_all       = np.concatenate(y_true_all, axis=0)
     y_pred_ann_all   = np.concatenate(y_pred_ann_all, axis=0)
     y_pred_ridge_all = np.concatenate(y_pred_ridge_all, axis=0)
@@ -249,5 +293,5 @@ def ann_model(X, y, k=(10,10), hidden_dims=[1,2,3,4,5,10,50], lr=0.001, n_epochs
     with pd.option_context('display.float_format', '{:,.6f}'.format):
         print(summary_df)
 
-    return table1, summary_df
+    return table1, summary_df, ttest_df
 
