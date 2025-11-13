@@ -332,7 +332,7 @@ def run_classification(X, y, feature_names, K_outer=10, K_inner=10, seed=1234,
     print(f"\nFinal logistic regression trained on full data with λ={lambda_star_final:.4f}")
     print("Intercept:", final_lr.intercept_[0])
     print("Top 5 coefficients (standardized scale):")
-    top5_idx = np.argsort(np.abs(final_lr.coef_[0]))[::-1][:5]
+    top5_idx = np.argsort(np.abs(final_lr.coef_[0]))[::-1][:]
     for i in top5_idx:
         print(f"  {feature_names[i]}: coef={final_lr.coef_[0][i]:.4f}")
 
